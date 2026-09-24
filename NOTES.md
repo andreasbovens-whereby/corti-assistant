@@ -187,6 +187,45 @@ A classic template covers many languages under one key: you pick the language wi
 
 ---
 
+## Audio pipeline (milestone 2)
+
+Code: `src/audio/`. Flow per participant: `AudioSink` frame → downmix to mono → resample to 16 kHz → channel buffer. Every 250 ms a clock takes 4000 samples from every channel, pads short channels with silence, interleaves them and hands one chunk (4000 frames × channels × 16-bit LE) to the consumer.
+
+### Resampler (`resampler.ts`)
+
+- A streaming **rational polyphase FIR** resampler: it handles any integer input rate, not only 48 kHz. 16 kHz input passes through untouched.
+- The low-pass is a Kaiser-windowed sinc, designed from the lower Nyquist frequency: cutoff 7.5 kHz, 1 kHz transition band, 80 dB stopband. For 48 → 16 kHz that's 242 taps.
+- Measured response (1 s tones at −6 dBFS):
+
+  | Input | 1–7 kHz | 7.5 kHz | 7.9 kHz | 8 kHz | 8.5 kHz | ≥10 kHz |
+  |---|---|---|---|---|---|---|
+  | Output level | 0.00 dB | −6 dB | −43 dB | −81 dB | −90 dB | below 1 LSB |
+
+  Speech energy above 7 kHz is small, and the 7–8 kHz rolloff is the unavoidable cost of 16 kHz output.
+- CPU: 60 s of 48 kHz audio resamples in about 330 ms on an M-series Mac, **about 0.5% of one core per participant**. That's a first data point for the capacity question; I'll measure the whole session in milestone 4.
+- State carries across calls, so 10 ms frames give bit-identical output to one long buffer (tested). The filter adds about 2.5 ms of delay.
+
+### Clock (`clock.ts`)
+
+- The tick schedule comes from the monotonic clock (`performance.now()`): tick *n* is due at `start + (n + 1) × 250 ms`, never at `previous tick + 250 ms`. A late timer delays one tick, not the ones after it. The test runs 60 minutes with every timer 0–40 ms late and gets exactly 14,400 ticks, each within 40 ms of its slot. A naive interval would drift by more than a minute over that hour.
+- **Stalls:** if the event loop is blocked, overdue ticks are caught up immediately, as long as the lag is at most 1 s. Beyond that the clock skips to the current slot and logs a warning. This keeps Corti's "not faster than real time" rule to at most a 1 s burst.
+- The clock starts only when `start()` is called, which the session will do after `CONFIG_ACCEPTED`. Audio arriving before that is buffered, but on `start()` each channel is trimmed to its newest 250 ms. That way waiting for Corti doesn't turn into permanent latency. Overflow while waiting isn't logged as a warning.
+
+### Buffers, padding and overflow (`channel-buffer.ts`)
+
+- A ring buffer per channel. A short read is padded with silence; this covers muted, not yet joined, left, and packet loss.
+- **Overflow:** when a channel would hold more than 1 s, the oldest audio is dropped **down to 250 ms**, not down to 1 s, so a channel that overflowed returns to low latency straight away. Each drop logs a warning with the amount dropped. On a single system clock, overflow should only happen after a burst, for example when frames were delayed and then delivered together.
+- **Alignment:** a tick that finds a channel short pads it, and the late frames play one tick later. So a channel's added delay rises to its worst observed jitter, rounded up to a 10 ms frame, and stays there. It doesn't keep growing. In the simulated hour (channel A 0–15 ms jitter, channel B 0–5 ms, timers 0–20 ms late), the worst skew between channels was 20 ms in minute 1 and 10 ms in each of the other 59 minutes, with no drops. The test fails if skew goes above 25 ms or gets worse over the hour. For speaker attribution, which works on the scale of words, 10–20 ms is negligible.
+
+### Other behaviour
+
+- **Downmix:** interleaved multichannel frames are averaged. Frames that aren't 16-bit are ignored, with one warning.
+- **Channel count** is fixed per pipeline (1–8), because Corti fixes it in the stream config. How to handle a third participant is decided in the session layer (milestone 3), not here.
+- **Consumer errors:** if the chunk consumer throws (for example, the socket is closed), the error is logged and the clock keeps running, so a Corti hiccup never stalls the Whereby side.
+- `audioFormat(n)` builds the stream config's `audioFormat` string from the same constants the pipeline uses.
+
+---
+
 ## Answers to open questions so far
 
 - **Best end signal:** not settled yet. The candidates in the source:

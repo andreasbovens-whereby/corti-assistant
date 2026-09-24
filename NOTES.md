@@ -183,7 +183,7 @@ A classic template covers many languages under one key: you pick the language wi
 
 **Guided templates** (177, all `source: corti`): each one is a **single language variant**, with its own UUID per language. That's 25 English templates, including SOAP Note, GP note, Outpatient Visit Note, History and Physical, Patient Summary, Referral Letter, Discharge Note, Psychology Session/Visit Note, Short/Long Psychiatry Note, Preoperative, Obstetric, Well Child Care, Cardiology Report, Lifestyle and Prevention, Detailed patient consultation, Short note and Brief Clinical Note. The other languages have smaller sets: de 23, da 22, fr 19; sv, pt, nl, it, es, ar, nb-NO and nn-NO about 11 each. The guided set is richer, especially for general practice and mental health, but switching language means switching template id.
 
-**Proposed default:** `NOTE_TEMPLATE_KEY=corti-soap` with the classic API. It's a general-purpose telehealth note and available in all 15 languages. `.env` currently has `NOTE_TEMPLATE_KEY` empty.
+**Decision (2026-09-24):** `NOTE_TEMPLATE_KEY=corti-soap` with the classic API. It's the standard visit note format, works when there's no physical exam, and is available in all 15 languages.
 
 ---
 

@@ -92,7 +92,8 @@ The polyfill also exports `setWebsocketOrigin(roomUrl)`. Nothing in the SDK call
 ### Client and auth
 
 - ✅ `new CortiClient({ tenantName, environment: CortiEnvironment.Eu, auth: { clientId, clientSecret } })`.
-- `environment` also accepts a region string (`"eu"`, `"us"`), which expands to `https://api.<region>.corti.app/v2`, `wss://api.<region>.corti.app/audio-bridge/v2` and so on. We pass `CORTI_ENV` straight through.
+- `environment` also accepts a region string (`"eu"`, `"us"`), which expands to `https://api.<region>.corti.app/v2`, `wss://api.<region>.corti.app/audio-bridge/v2` and so on. We pass `CORTI_ENVIRONMENT` straight through.
+- ❌ **Variable names:** Corti's dashboard exports `CORTI_TENANT_NAME` and `CORTI_ENVIRONMENT`, not the spec's `CORTI_TENANT` and `CORTI_ENV`. We use the dashboard names so its block can be pasted into `.env` unchanged. The old names are rejected at startup with a rename hint, so they're never silently ignored.
 - ✅ Client credentials tokens refresh automatically for REST calls, 2 minutes before expiry (`BUFFER_IN_MINUTES = 2`).
 
 ### Interaction workflow: SDK method for each step

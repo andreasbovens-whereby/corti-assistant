@@ -29,6 +29,12 @@ export class ConfigError extends Error {
 
 type Env = Record<string, string | undefined>;
 
+/** Names from earlier drafts of the spec. Corti's dashboard uses the new names, so we match it. */
+const RENAMED: Record<string, string> = {
+  CORTI_TENANT: "CORTI_TENANT_NAME",
+  CORTI_ENV: "CORTI_ENVIRONMENT",
+};
+
 /**
  * Reads and validates configuration from environment variables.
  * Collects every problem before throwing, so one run shows everything that needs fixing.
@@ -39,6 +45,10 @@ export function loadConfig(env: Env = process.env): Config {
     const value = env[name]?.trim();
     return value === "" ? undefined : value;
   };
+
+  for (const [oldName, newName] of Object.entries(RENAMED)) {
+    if (read(oldName) !== undefined) problems.push(`${oldName} has been renamed to ${newName}`);
+  }
 
   const required = (name: string): string => {
     const value = read(name);
@@ -98,10 +108,10 @@ export function loadConfig(env: Env = process.env): Config {
       assistantKey: required("WHEREBY_ASSISTANT_KEY"),
     },
     corti: {
-      tenant: required("CORTI_TENANT"),
+      tenant: required("CORTI_TENANT_NAME"),
       clientId: required("CORTI_CLIENT_ID"),
       clientSecret: required("CORTI_CLIENT_SECRET"),
-      region: oneOf("CORTI_ENV", ["eu", "us"], "eu"),
+      region: oneOf("CORTI_ENVIRONMENT", ["eu", "us"], "eu"),
       primaryLanguage: read("PRIMARY_LANGUAGE") ?? "en",
       noteTemplateKey: required("NOTE_TEMPLATE_KEY"),
       retentionPolicy: oneOf("RETENTION_POLICY", ["none", "retain"], "none"),

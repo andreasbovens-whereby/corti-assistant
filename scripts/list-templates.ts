@@ -7,7 +7,7 @@
 import "dotenv/config";
 import { CortiClient } from "@corti/sdk";
 
-const required = ["CORTI_TENANT", "CORTI_CLIENT_ID", "CORTI_CLIENT_SECRET"] as const;
+const required = ["CORTI_TENANT_NAME", "CORTI_CLIENT_ID", "CORTI_CLIENT_SECRET"] as const;
 const missing = required.filter((name) => !process.env[name]);
 if (missing.length > 0) {
   console.error(`Missing ${missing.join(", ")}. Copy .env.example to .env and fill it in.`);
@@ -16,8 +16,8 @@ if (missing.length > 0) {
 
 const lang = process.argv[2];
 const client = new CortiClient({
-  tenantName: process.env.CORTI_TENANT!,
-  environment: process.env.CORTI_ENV ?? "eu",
+  tenantName: process.env.CORTI_TENANT_NAME!,
+  environment: process.env.CORTI_ENVIRONMENT ?? "eu",
   auth: { clientId: process.env.CORTI_CLIENT_ID!, clientSecret: process.env.CORTI_CLIENT_SECRET! },
 });
 

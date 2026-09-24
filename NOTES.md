@@ -220,7 +220,8 @@ Code: `src/audio/`. Flow per participant: `AudioSink` frame → downmix to mono 
 ### Other behaviour
 
 - **Downmix:** interleaved multichannel frames are averaged. Frames that aren't 16-bit are ignored, with one warning.
-- **Channel count** is fixed per pipeline (1–8), because Corti fixes it in the stream config. How to handle a third participant is decided in the session layer (milestone 3), not here.
+- **Channel count** is fixed per pipeline (1–8), because Corti fixes it in the stream config.
+- **Decision (2026-09-24): two channels, extras mixed into the patient channel.** Channel 0 is the doctor and channel 1 the patient. Anyone else who joins is mixed into channel 1. In telehealth the third person is usually a relative or interpreter on the patient's side. The known trade-off is that a second clinician would be attributed to the patient. This needs one pipeline change in milestone 3: today each channel buffer assumes a single source, and two sources writing to it would be *concatenated* rather than mixed. Each source needs its own buffer and resampler, and the sources get summed (with clipping) at tick time.
 - **Consumer errors:** if the chunk consumer throws (for example, the socket is closed), the error is logged and the clock keeps running, so a Corti hiccup never stalls the Whereby side.
 - `audioFormat(n)` builds the stream config's `audioFormat` string from the same constants the pipeline uses.
 

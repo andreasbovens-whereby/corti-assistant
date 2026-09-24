@@ -6,11 +6,15 @@ export const PATIENT_CHANNEL = 1;
 /** Channel roles for the Corti stream config. */
 export const CHANNEL_ROLES: SpeakerRole[] = ["doctor", "patient"];
 
+/** Roles that count as "the host" for the doctor fallback. */
+const HOST_ROLES = new Set(["host", "owner"]);
+
 /**
  * Decides which Corti channel a participant's audio goes to.
  *
  * - Channel 0 (doctor): a participant whose `externalId` matches the clinician pattern.
- *   If nobody present matches it (or no pattern is set), the room host.
+ *   If nobody present matches it (or no pattern is set), the room host: role `host`,
+ *   or `owner` for the room's owner (seen live; the SDK's RoleName type omits it).
  * - Channel 1 (patient): everyone else. A third or fourth person is mixed into this
  *   channel; in telehealth that's usually a relative or interpreter (see NOTES.md).
  *
@@ -36,6 +40,6 @@ export class ChannelMap {
   private isClinician(participant: RoomParticipant, present: RoomParticipant[]): boolean {
     const matches = (p: RoomParticipant) => this.clinicianPattern !== null && p.externalId !== null && this.clinicianPattern.test(p.externalId);
     if (matches(participant)) return true;
-    return participant.roleName === "host" && !present.some(matches);
+    return HOST_ROLES.has(participant.roleName) && !present.some(matches);
   }
 }

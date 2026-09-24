@@ -52,7 +52,18 @@ export class WherebyRoom extends EventEmitter<RoomEvents> implements Room {
       const track: RoomAudioTrack = {
         trackId,
         participant: toParticipant(state),
-        subscribe: (onFrame) => sink.subscribe(onFrame),
+        subscribe: (onFrame) => {
+          let first = true;
+          sink.subscribe((frame) => {
+            if (first) {
+              first = false;
+              // The frame format is only known at runtime; log it once per track.
+              const { sampleRate, channelCount, bitsPerSample, numberOfFrames } = frame;
+              this.logger.info("First audio frame", { trackId, sampleRate, channelCount, bitsPerSample, numberOfFrames, samples: frame.samples.length });
+            }
+            onFrame(frame);
+          });
+        },
         stop: () => this.stopTrack(trackId),
       };
       this.emit("audioTrackAdded", track);

@@ -19,6 +19,8 @@ export interface SessionOptions {
   clock?: Clock;
   /** Defaults to the room name plus a timestamp. Also the Corti encounter identifier. */
   id?: string;
+  /** Receives every audio chunk sent to Corti (for local debugging, e.g. saving a WAV). */
+  audioTap?: (chunk: Buffer) => void;
 }
 
 /**
@@ -53,7 +55,7 @@ export class Session {
   private ending: Promise<void> | undefined;
   private resolveFinished!: () => void;
 
-  constructor({ room, scribe, sink, clinicianPattern, endGraceMs, noShowTimeoutMs = 10 * 60_000, logger = silentLogger, clock = systemClock, id }: SessionOptions) {
+  constructor({ room, scribe, sink, clinicianPattern, endGraceMs, noShowTimeoutMs = 10 * 60_000, logger = silentLogger, clock = systemClock, id, audioTap }: SessionOptions) {
     this.room = room;
     this.roomUrl = room.roomUrl;
     this.scribe = scribe;
@@ -69,7 +71,10 @@ export class Session {
       channelCount: CHANNEL_ROLES.length,
       clock,
       logger: this.logger,
-      onChunk: (chunk) => this.scribe.sendAudio(chunk.data),
+      onChunk: (chunk) => {
+        audioTap?.(chunk.data);
+        this.scribe.sendAudio(chunk.data);
+      },
     });
 
     scribe.on("transcript", (segment) => this.output((s) => s.onTranscript(this.id, segment)));

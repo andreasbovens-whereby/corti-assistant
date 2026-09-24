@@ -286,20 +286,56 @@ Logs carry ids, roles, counts and states only: no transcript text, facts, note c
 
 ---
 
+## Live test (milestone 4, 2026-09-24)
+
+Manual mode (`npm run join -- <roomUrl>`) against the real Whereby room `funtimes/andreas-assistant-test-…` and the real Corti EU tenant, in a role-played consultation. Doctor: the room owner. Patient: a visitor in a private window. About 2.5 minutes. `DEBUG_AUDIO=1` saves the exact stereo stream sent to Corti as `sessions/<id>.wav`.
+
+### Result
+
+- **Attribution:** every final segment was attributed to the right speaker. For example, the doctor's "Hello, I'm the Doctor, how are you?" and "…Ibuprofen is better suited for dealing with toothaches and headaches" were on the doctor channel; the patient's "I'm the patient, by the way. I'm struggling a bit with a headache" and "it started with a toothache" were on the patient channel. There were no cross-attributions.
+- **Facts:** 7 appeared during the call, for example "Headache for a little over a week", "Toothache preceded the headache", "Painkillers ineffective for toothache", "Requests stronger analgesia".
+- **Note:** a `corti-soap` draft was generated from the facts a few seconds after the call ended. Subjective and Assessment are accurate. Objective is empty, as expected on video. **Plan is empty**, although the doctor did recommend ibuprofen: Corti didn't extract that as a fact. See "Follow-ups".
+- **Clean run:** no audio dropped, no reconnects, no warnings. The interaction went planned → in-progress → completed.
+
+### Answers from the live system
+
+| Question | Answer |
+|---|---|
+| Audio frames | Vary **per track**: 16 kHz/160 samples on one participant, 48 kHz/480 on another, always mono 16-bit 10 ms. Reading the rate from each frame (not assuming 48 kHz) was necessary. |
+| Transcript `time` unit | **Seconds** since the start of the stream. |
+| Latency, speech to final transcript | **About 2–3.5 s** after the end of an utterance. Long unbroken speech becomes final only at a pause, up to ~13 s after it started. Showing interim segments would make the demo page feel live. |
+| Resource use | **13–15% of one CPU core and ~150–180 MB RSS** for one session with two participants (Apple Silicon). Part of this is likely WebRTC decoding remote video, which the SDK does although we only use audio. Rough estimate: 4–6 sessions per shared-CPU Fly machine; I'll measure on Fly in milestone 6. |
+| Note with retention `none` | **Works**, when facts are passed as context. |
+| End handshake | `end` → `usage` → `ENDED` arrives within ~1.5 s. |
+| Stream config | Accepted as sent: 2 channels, `fast_init`, the exact `audioFormat` string, retention `none`. |
+| Best end signal | **Whereby removes the Assistant as soon as the last person leaves** (`ASSISTANT_LEFT_ROOM`). The grace period doesn't get to run then. It still matters when only bots (a recorder, another assistant) are left, since the room may stay open for them. |
+
+### Whereby behaviour found live
+
+- **An Assistant can't join an empty room:** `joinRoom` rejects with `room_empty`. Manual mode now says "join the room first". In webhook mode the trigger comes from someone joining, so the room isn't empty.
+- **Assistants must be enabled** per assistant in the dashboard, and the org needs the (closed beta) feature. Otherwise `joinRoom` rejects with `organization_assistant_not_enabled`. The Endpoint URL is only needed for Manual Invite (milestone 5).
+- **Roles:** the room owner joins as **`owner`**, which the SDK's `RoleName` type doesn't include. A logged-in user opening the *visitor* link in the same browser also joins as `owner`. A visitor let in from the lobby is **`granted_visitor`**. The doctor fallback now accepts `host` and `owner`. Before that fix, the first live run put the owner on the patient channel.
+- The SDK prints `[RTCSTATS] Closed 1005` to stdout when leaving (harmless noise).
+
+### Follow-ups
+
+- **Empty Plan section:** facts capture what the patient reports better than what the doctor recommends. Options: send the transcript alongside the facts (the classic API only allows several context objects of type transcript, so this needs testing, or the guided API, which allows mixed context); or ask Corti whether a fact group covers plans.
+- **Recognition of drug names:** "Kind of parasitic" was probably "paracetamol". The stream config supports `keyterms`; a short list of common medications could be configurable.
+- **Interim transcripts** on the demo page (milestone 5).
+
+---
+
 ## Answers to open questions so far
 
-- **Best end signal:** not settled yet. The candidates in the source:
-  1. The remote participants subscription becomes empty of humans, then the grace period expires. This is in-process and always available.
-  2. The `room.client.left` webhook with `numClientsByRoleName`.
-  3. The `room.session.ended` webhook. It will likely not fire while the Assistant itself is still in the room, since it counts as a client. To verify in milestone 5.
-  4. `ASSISTANT_LEFT_ROOM` (left or kicked).
+- **Best end signal:** Whereby removes the Assistant when the last person leaves, so `ASSISTANT_LEFT_ROOM` is the primary signal in practice. The empty-room grace period and the no-show timeout remain as backstops (live test, milestone 4).
+- **Do webhooks include `externalId`/role?** Per the SDK types, yes for `room.client.joined`/`left`; to confirm with real payloads in milestone 5.
+- **Templates and languages:** 11 classic and 177 guided templates (see "Templates and languages").
+- **Latency:** about 2–3.5 s from the end of an utterance to the final transcript (milestone 4). The demo page adds little on top of that; to confirm in milestone 5.
+- **CPU and memory:** 13–15% of one core and ~150–180 MB per two-person session locally; to confirm on Fly in milestone 6.
 
-  Implemented in milestone 3: (1) with a grace period, plus (4), plus a 10-minute no-show timeout. (2) or (3) can be added as a fast path in milestone 5 if the payloads bear it out.
-- **Do webhooks include `externalId`/role?** Yes, for `room.client.joined` and `room.client.left` (see above).
-- **Templates and languages:** 11 classic and 177 guided templates (see "Templates and languages" above).
-- **Latency, CPU and memory:** to measure in milestones 4 and 5.
+---
 
 ## Items to raise upstream
 
-- Whereby: the `AudioSink` double sink leak; no `leaveRoom` on `Assistant`; Trigger's server not exposed and no graceful stop; the README spelling of `TRIGGER_EVENT_SUCCESS` and the constructor `roomUrl`.
+- Whereby: `owner` and `granted_visitor` missing from the `RoleName` type; the `AudioSink` double sink leak; no `leaveRoom` on `Assistant`; Trigger's server not exposed and no graceful stop; the README spelling of `TRIGGER_EVENT_SUCCESS` and the constructor `roomUrl`.
 - Corti: `connect()` with `configuration` crashes the process when the connection fails before opening (unhandled rejection); the reconnect sends queued audio before the config; reconnects reuse the stale token; `CONFIG_TIMEOUT` isn't handled by `connect()`.

@@ -7,3 +7,4 @@ coverage/
 *.log
 *.wav
 .DS_Store
+sessions/

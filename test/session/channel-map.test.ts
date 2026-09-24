@@ -27,6 +27,14 @@ describe("ChannelMap", () => {
     expect(map.channelFor(host, [guest, host])).toBe(DOCTOR_CHANNEL);
   });
 
+  it("treats the room owner as the host (Whereby reports it as roleName \"owner\")", () => {
+    const map = new ChannelMap(/^clinician:/);
+    const owner = person("o", "owner");
+    const guest = person("g");
+    expect(map.channelFor(owner, [owner, guest])).toBe(DOCTOR_CHANNEL);
+    expect(map.channelFor(guest, [owner, guest])).toBe(PATIENT_CHANNEL);
+  });
+
   it("falls back to the host when no pattern is configured", () => {
     const map = new ChannelMap(null);
     const host = person("h", "host", "clinician:1");

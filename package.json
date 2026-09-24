@@ -13,7 +13,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "list-templates": "tsx scripts/list-templates.ts"
+    "list-templates": "tsx scripts/list-templates.ts",
+    "join": "tsx src/join.ts"
   },
   "dependencies": {
     "@corti/sdk": "5.0.0",

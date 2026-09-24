@@ -158,9 +158,31 @@ The spec's step 6 (`POST documents with templateKey, language, …`) matches the
 
 **Proposal for milestone 3:** use the classic API with `NOTE_TEMPLATE_KEY` and one `facts` context built from the non-discarded facts collected on the stream. It matches Corti's ambient workflow doc and the spec's config name. I'll keep the Corti client behind a small interface so switching to guided is a local change. I'd like your call if you prefer guided.
 
-### Templates and languages (open question, blocked on credentials)
+### Templates and languages (answers an open question)
 
-`npm run list-templates [-- <lang>]` lists both classic (key) and guided (id) templates for the tenant. I can't run it without Corti credentials. I'll fill in this section once I have them (at the latest in milestone 4). The SDK also has `client.languages` for supported languages.
+`npm run list-templates [-- <lang>]` lists both kinds of template. Results for our tenant (EU) on 2026-09-24:
+
+**Classic templates** (11, all `published`, referenced by `key`):
+
+| Key | Name | Languages |
+|---|---|---|
+| `corti-soap` | SOAP Note | ar, da, de, de-CH, en, en-GB, en-US, es, fr, fr-CH, it, nl, no, pt, sv |
+| `corti-h-and-p` | History and Physical | same 15 |
+| `corti-patient-summary` | Patient Summary | same 15 |
+| `corti-nursing-note` | Nursing Note | same 15 |
+| `corti-referral` | Referral | same 15 |
+| `corti-outpatient-visit-note` | Outpatient Visit Note | 14 (no fr-CH) |
+| `corti-emergency-note` | Emergency Note | 14 (no fr-CH) |
+| `corti-brief-clinical-note` | Brief Clinical Note | 14 (no fr-CH) |
+| `corti-emergency-response-note` | Emergency Response Call Summary | 13 (no ar, fr-CH) |
+| `corti-epic-avr` | Epic AVR Integration | 15 (EHR-specific) |
+| `summary-of-notes` | Summary of Notes | none listed |
+
+A classic template covers many languages under one key: you pick the language with `outputLanguage`.
+
+**Guided templates** (177, all `source: corti`): each one is a **single language variant**, with its own UUID per language. That's 25 English templates, including SOAP Note, GP note, Outpatient Visit Note, History and Physical, Patient Summary, Referral Letter, Discharge Note, Psychology Session/Visit Note, Short/Long Psychiatry Note, Preoperative, Obstetric, Well Child Care, Cardiology Report, Lifestyle and Prevention, Detailed patient consultation, Short note and Brief Clinical Note. The other languages have smaller sets: de 23, da 22, fr 19; sv, pt, nl, it, es, ar, nb-NO and nn-NO about 11 each. The guided set is richer, especially for general practice and mental health, but switching language means switching template id.
+
+**Proposed default:** `NOTE_TEMPLATE_KEY=corti-soap` with the classic API. It's a general-purpose telehealth note and available in all 15 languages. `.env` currently has `NOTE_TEMPLATE_KEY` empty.
 
 ---
 
@@ -174,7 +196,7 @@ The spec's step 6 (`POST documents with templateKey, language, …`) matches the
 
   My plan is (1) plus (4) as the primary signals, and (2) or (3) as a fast path if the payloads bear it out.
 - **Do webhooks include `externalId`/role?** Yes, for `room.client.joined` and `room.client.left` (see above).
-- **Templates and languages:** pending credentials.
+- **Templates and languages:** 11 classic and 177 guided templates (see "Templates and languages" above).
 - **Latency, CPU and memory:** to measure in milestones 4 and 5.
 
 ## Items to raise upstream

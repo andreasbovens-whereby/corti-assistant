@@ -28,11 +28,12 @@ export interface Chunk {
   /** Interleaved 16-bit little-endian PCM, `SAMPLES_PER_CHUNK` frames of `channelCount` samples. */
   data: Buffer;
   index: number;
-  /** Per channel, how many samples of this chunk are padding. */
+  /** Per channel, how many samples of this chunk no source had audio for. */
   paddedSamples: number[];
 }
 
 export interface ChannelStats {
+  sources: number;
   receivedSamples: number;
   paddedSamples: number;
   droppedSamples: number;
@@ -44,35 +45,42 @@ export interface AudioPipelineOptions {
   onChunk: (chunk: Chunk) => void;
   clock?: Clock;
   logger?: Logger;
-  /** A channel holding more than this is overflowing (default 1000 ms). */
+  /** A source holding more than this is overflowing (default 1000 ms). */
   maxBufferMs?: number;
   /** On overflow, keep only this much of the newest audio (default one chunk). */
   trimToMs?: number;
 }
 
-interface ChannelState {
+/** One participant's audio track, feeding one channel. */
+interface Source {
+  channel: number;
   buffer: ChannelBuffer;
   resampler: Resampler | undefined;
-  scratch: Int16Array;
-  stats: Omit<ChannelStats, "bufferedSamples">;
+  /** Removed, but still playing out what it had buffered. */
+  draining: boolean;
 }
 
 /**
  * Turns per-participant WebRTC audio into one multichannel stream at real-time speed.
  *
- * Each channel is downmixed to mono, resampled to 16 kHz and buffered. A clock that
- * doesn't depend on incoming audio takes one chunk from every channel every 250 ms,
- * pads channels that are short with silence, and interleaves the result. Because all
- * channels are read at the same instant, they stay aligned: a channel that stops
- * (muted, left, packet loss) becomes silence instead of shifting the others.
+ * Each source (one participant's track) is downmixed to mono, resampled to 16 kHz and
+ * buffered on its own. A clock that doesn't depend on incoming audio takes one chunk from
+ * every source every 250 ms, adds up the sources that share a channel, pads what's
+ * missing with silence, and interleaves the channels. Because every source is read at the
+ * same instant, channels stay aligned: a source that stops (muted, left, packet loss)
+ * becomes silence instead of shifting anything else.
  */
 export class AudioPipeline {
   readonly channelCount: number;
-  private readonly channels: ChannelState[];
+  private readonly sources = new Map<string, Source>();
   private readonly ticker: Ticker;
   private readonly onChunk: (chunk: Chunk) => void;
   private readonly logger: Logger;
+  private readonly maxBufferSamples: number;
   private readonly trimToSamples: number;
+  private readonly channelStats: Omit<ChannelStats, "sources" | "bufferedSamples">[];
+  private readonly scratch = new Int16Array(SAMPLES_PER_CHUNK);
+  private readonly mix: Int32Array[];
   private chunksSent = 0;
   private rejectedFormatLogged = false;
 
@@ -90,13 +98,14 @@ export class AudioPipeline {
     this.channelCount = channelCount;
     this.onChunk = onChunk;
     this.logger = logger;
+    this.maxBufferSamples = msToSamples(maxBufferMs);
     this.trimToSamples = msToSamples(trimToMs);
-    this.channels = Array.from({ length: channelCount }, () => ({
-      buffer: new ChannelBuffer({ maxSamples: msToSamples(maxBufferMs), trimToSamples: this.trimToSamples }),
-      resampler: undefined,
-      scratch: new Int16Array(SAMPLES_PER_CHUNK),
-      stats: { receivedSamples: 0, paddedSamples: 0, droppedSamples: 0 },
+    this.channelStats = Array.from({ length: channelCount }, () => ({
+      receivedSamples: 0,
+      paddedSamples: 0,
+      droppedSamples: 0,
     }));
+    this.mix = Array.from({ length: channelCount }, () => new Int32Array(SAMPLES_PER_CHUNK));
     this.ticker = new Ticker({
       clock,
       periodMs: CHUNK_MS,
@@ -110,44 +119,72 @@ export class AudioPipeline {
     return this.ticker.isRunning;
   }
 
-  /** Adds one frame of audio for a channel. Safe to call before `start()`. */
-  pushFrame(channel: number, frame: AudioFrame): void {
-    const state = this.channel(channel);
+  /** Registers a source (e.g. a participant's audio track) on a channel. */
+  addSource(sourceId: string, channel: number): void {
+    if (!Number.isInteger(channel) || channel < 0 || channel >= this.channelCount) {
+      throw new RangeError(`Channel ${channel} doesn't exist (pipeline has ${this.channelCount})`);
+    }
+    if (this.sources.has(sourceId)) throw new Error(`Source ${sourceId} is already registered`);
+    this.sources.set(sourceId, {
+      channel,
+      buffer: new ChannelBuffer({ maxSamples: this.maxBufferSamples, trimToSamples: this.trimToSamples }),
+      resampler: undefined,
+      draining: false,
+    });
+  }
+
+  /**
+   * Unregisters a source. Audio it already buffered still plays out, so the last words
+   * before someone leaves aren't cut off.
+   */
+  removeSource(sourceId: string): void {
+    const source = this.sources.get(sourceId);
+    if (!source) return;
+    if (this.isRunning && source.buffer.length > 0) source.draining = true;
+    else this.sources.delete(sourceId);
+  }
+
+  /** Adds one frame of audio for a source. Safe to call before `start()`; ignored for unknown sources. */
+  pushFrame(sourceId: string, frame: AudioFrame): void {
+    const source = this.sources.get(sourceId);
+    if (!source || source.draining) return;
     if (frame.bitsPerSample !== undefined && frame.bitsPerSample !== 16) {
       if (!this.rejectedFormatLogged) {
-        this.logger.warn("Ignoring audio frames that aren't 16-bit", { channel, bitsPerSample: frame.bitsPerSample });
+        this.logger.warn("Ignoring audio frames that aren't 16-bit", { sourceId, bitsPerSample: frame.bitsPerSample });
         this.rejectedFormatLogged = true;
       }
       return;
     }
 
     const mono = downmix(frame.samples, frame.channelCount);
-    if (state.resampler?.inputRate !== frame.sampleRate) {
-      state.resampler = new Resampler({ inputRate: frame.sampleRate, outputRate: OUTPUT_SAMPLE_RATE });
+    if (source.resampler?.inputRate !== frame.sampleRate) {
+      source.resampler = new Resampler({ inputRate: frame.sampleRate, outputRate: OUTPUT_SAMPLE_RATE });
     }
-    const resampled = state.resampler.process(mono);
-    state.stats.receivedSamples += resampled.length;
+    const resampled = source.resampler.process(mono);
+    const stats = this.channelStats[source.channel]!;
+    stats.receivedSamples += resampled.length;
 
-    const dropped = state.buffer.write(resampled);
+    const dropped = source.buffer.write(resampled);
     if (dropped > 0) {
-      state.stats.droppedSamples += dropped;
+      stats.droppedSamples += dropped;
       // Before the clock starts, audio piling up is expected (we're waiting for Corti).
       if (this.isRunning) {
-        this.logger.warn("Audio buffer overflow; dropped oldest audio", { channel, droppedMs: samplesToMs(dropped) });
+        this.logger.warn("Audio buffer overflow; dropped oldest audio", {
+          sourceId,
+          channel: source.channel,
+          droppedMs: samplesToMs(dropped),
+        });
       }
     }
-  }
-
-  /** Call when a channel gets a new track, so filter state from the old track doesn't leak in. */
-  resetChannel(channel: number): void {
-    this.channel(channel).resampler?.reset();
   }
 
   /** Starts the clock. Call only once Corti has accepted the stream configuration. */
   start(): void {
     if (this.isRunning) return;
     // Drop audio that piled up while waiting, so the stream starts close to real time.
-    for (const state of this.channels) state.stats.droppedSamples += state.buffer.trimTo(this.trimToSamples);
+    for (const source of this.sources.values()) {
+      this.channelStats[source.channel]!.droppedSamples += source.buffer.trimTo(this.trimToSamples);
+    }
     this.ticker.start();
   }
 
@@ -158,27 +195,44 @@ export class AudioPipeline {
   stats(): { chunksSent: number; channels: ChannelStats[] } {
     return {
       chunksSent: this.chunksSent,
-      channels: this.channels.map((c) => ({ ...c.stats, bufferedSamples: c.buffer.length })),
+      channels: this.channelStats.map((stats, channel) => {
+        let sources = 0;
+        let bufferedSamples = 0;
+        for (const source of this.sources.values()) {
+          if (source.channel !== channel) continue;
+          sources++;
+          bufferedSamples += source.buffer.length;
+        }
+        return { ...stats, sources, bufferedSamples };
+      }),
     };
   }
 
-  private channel(channel: number): ChannelState {
-    const state = this.channels[channel];
-    if (!state) throw new RangeError(`Channel ${channel} doesn't exist (pipeline has ${this.channelCount})`);
-    return state;
-  }
-
   private emitChunk(tick: Tick): void {
-    const paddedSamples = this.channels.map((state) => {
-      const padded = SAMPLES_PER_CHUNK - state.buffer.read(state.scratch);
-      state.stats.paddedSamples += padded;
+    for (const mix of this.mix) mix.fill(0);
+    const covered = new Array<number>(this.channelCount).fill(0);
+
+    for (const [sourceId, source] of this.sources) {
+      const real = source.buffer.read(this.scratch);
+      const mix = this.mix[source.channel]!;
+      for (let i = 0; i < real; i++) mix[i]! += this.scratch[i]!;
+      covered[source.channel] = Math.max(covered[source.channel]!, real);
+      if (source.draining && source.buffer.length === 0) this.sources.delete(sourceId);
+    }
+
+    const paddedSamples = covered.map((real, channel) => {
+      const padded = SAMPLES_PER_CHUNK - real;
+      this.channelStats[channel]!.paddedSamples += padded;
       return padded;
     });
 
     const data = Buffer.allocUnsafe(SAMPLES_PER_CHUNK * this.channelCount * 2);
     let offset = 0;
     for (let i = 0; i < SAMPLES_PER_CHUNK; i++) {
-      for (const state of this.channels) offset = data.writeInt16LE(state.scratch[i]!, offset);
+      for (const mix of this.mix) {
+        const sample = mix[i]!;
+        offset = data.writeInt16LE(sample > 32767 ? 32767 : sample < -32768 ? -32768 : sample, offset);
+      }
     }
 
     this.chunksSent++;

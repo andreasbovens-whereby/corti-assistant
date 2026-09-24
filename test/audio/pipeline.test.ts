@@ -16,6 +16,8 @@ const FRAME_MS = 10;
 
 interface Source {
   channel: number;
+  /** Defaults to one source per channel. */
+  sourceId?: string;
   /** Returns the frame's samples (mono), or null to stop sending. */
   frame: (index: number) => Int16Array | null;
   sampleRate?: number;
@@ -27,6 +29,8 @@ interface Source {
 /** Simulates WebRTC delivering 10 ms frames per participant on the fake clock. */
 function feed(clock: FakeClock, pipeline: AudioPipeline, source: Source): void {
   const { channel, frame, sampleRate = WEBRTC_RATE, jitterMs = () => 0, startMs = 0 } = source;
+  const sourceId = source.sourceId ?? `source-${channel}`;
+  pipeline.addSource(sourceId, channel);
   let lastArrival = 0;
   const schedule = (n: number) => {
     const arrival = Math.max(lastArrival, startMs + (n + 1) * FRAME_MS + jitterMs());
@@ -34,7 +38,7 @@ function feed(clock: FakeClock, pipeline: AudioPipeline, source: Source): void {
     clock.at(arrival, () => {
       const samples = frame(n);
       if (samples === null) return;
-      pipeline.pushFrame(channel, { samples, sampleRate, channelCount: 1, bitsPerSample: 16 });
+      pipeline.pushFrame(sourceId, { samples, sampleRate, channelCount: 1, bitsPerSample: 16 });
       schedule(n + 1);
     });
   };
@@ -186,19 +190,67 @@ describe("AudioPipeline", () => {
     expect(logger.entries.filter((e) => e.level === "warn")).toEqual([]);
   });
 
+  it("mixes several sources on one channel (extra participants join the patient channel)", () => {
+    const { clock, chunks, pipeline } = setup();
+    feed(clock, pipeline, toneSource(0, 440));
+    feed(clock, pipeline, { ...toneSource(1, 1000), sourceId: "patient" });
+    feed(clock, pipeline, { ...toneSource(1, 2500), sourceId: "relative" });
+    pipeline.start();
+    clock.advanceTo(1000);
+
+    const [doctor, patientChannel] = deinterleave(chunks[2]!.data, 2);
+    expect(toneAmplitude(doctor!, 440, 16_000)).toBeGreaterThan(15_000);
+    expect(toneAmplitude(doctor!, 2500, 16_000)).toBeLessThan(50);
+    // Both people are on channel 1, at full level, and the chunk isn't twice as long.
+    expect(toneAmplitude(patientChannel!, 1000, 16_000)).toBeGreaterThan(15_000);
+    expect(toneAmplitude(patientChannel!, 2500, 16_000)).toBeGreaterThan(15_000);
+    expect(chunks[2]!.data.length).toBe(SAMPLES_PER_CHUNK * 2 * 2);
+    expect(pipeline.stats().channels.map((c) => c.sources)).toEqual([1, 2]);
+  });
+
+  it("clips a loud mix instead of wrapping around", () => {
+    const { clock, chunks, pipeline } = setup(1);
+    const loud = new Int16Array(SAMPLES_PER_CHUNK).fill(30_000);
+    for (const id of ["a", "b"]) {
+      pipeline.addSource(id, 0);
+      pipeline.pushFrame(id, { samples: loud, sampleRate: 16_000, channelCount: 1 });
+    }
+    pipeline.start();
+    clock.advanceTo(250);
+    expect(deinterleave(chunks[0]!.data, 1)[0]!.every((s) => s === 32_767)).toBe(true);
+  });
+
+  it("plays out a removed source's buffered audio, then forgets it", () => {
+    const { clock, chunks, pipeline } = setup(1);
+    pipeline.addSource("patient", 0);
+    pipeline.start();
+    pipeline.pushFrame("patient", { samples: new Int16Array(2000).fill(5), sampleRate: 16_000, channelCount: 1 });
+    pipeline.removeSource("patient");
+    pipeline.pushFrame("patient", { samples: new Int16Array(160).fill(9), sampleRate: 16_000, channelCount: 1 });
+    clock.advanceTo(500);
+
+    const first = deinterleave(chunks[0]!.data, 1)[0]!;
+    expect(first.subarray(0, 2000).every((s) => s === 5)).toBe(true); // buffered audio kept
+    expect(first.subarray(2000).every((s) => s === 0)).toBe(true); // frames after removal ignored
+    expect(pipeline.stats().channels[0]!.sources).toBe(0);
+    // The id can be registered again, e.g. when the participant comes back.
+    expect(() => pipeline.addSource("patient", 0)).not.toThrow();
+  });
+
   it("drops the oldest audio and warns when a buffer grows beyond 1 s", () => {
     const { clock, chunks, pipeline, logger } = setup();
     pipeline.start();
     clock.advanceTo(1000);
     // A burst: 2 s of audio for channel 0 arrives at once (e.g. after a network stall).
     const burst = Int16Array.from({ length: 32_000 }, (_, i) => (i < 28_000 ? 1 : 2));
-    pipeline.pushFrame(0, { samples: burst, sampleRate: 16_000, channelCount: 1 });
+    pipeline.addSource("doctor", 0);
+    pipeline.pushFrame("doctor", { samples: burst, sampleRate: 16_000, channelCount: 1 });
 
     const stats = pipeline.stats().channels[0]!;
     expect(stats.droppedSamples).toBe(28_000);
     expect(stats.bufferedSamples).toBe(SAMPLES_PER_CHUNK);
     expect(logger.entries).toContainEqual(
-      expect.objectContaining({ level: "warn", message: expect.stringContaining("overflow"), fields: { channel: 0, droppedMs: 1750 } }),
+      expect.objectContaining({ level: "warn", message: expect.stringContaining("overflow"), fields: { sourceId: "doctor", channel: 0, droppedMs: 1750 } }),
     );
 
     // Only the newest audio survives, and it goes out in the very next chunk.
@@ -230,15 +282,17 @@ describe("AudioPipeline", () => {
       stereo[i * 2] = s;
       stereo[i * 2 + 1] = s;
     });
-    pipeline.pushFrame(0, { samples: stereo, sampleRate: 48_000, channelCount: 2, bitsPerSample: 16 });
+    pipeline.addSource("doctor", 0);
+    pipeline.pushFrame("doctor", { samples: stereo, sampleRate: 48_000, channelCount: 2, bitsPerSample: 16 });
     clock.advanceTo(250);
     expect(toneAmplitude(deinterleave(chunks[0]!.data, 1)[0]!.subarray(200, 3800), 440, 16_000)).toBeGreaterThan(15_000);
   });
 
   it("ignores frames that aren't 16-bit and warns once", () => {
     const { pipeline, logger } = setup();
+    pipeline.addSource("doctor", 0);
     for (let i = 0; i < 3; i++) {
-      pipeline.pushFrame(0, { samples: new Int16Array(480), sampleRate: 48_000, channelCount: 1, bitsPerSample: 8 });
+      pipeline.pushFrame("doctor", { samples: new Int16Array(480), sampleRate: 48_000, channelCount: 1, bitsPerSample: 8 });
     }
     expect(pipeline.stats().channels[0]!.receivedSamples).toBe(0);
     expect(logger.entries.filter((e) => e.level === "warn")).toHaveLength(1);
@@ -267,9 +321,11 @@ describe("AudioPipeline", () => {
     expect(() => new AudioPipeline({ channelCount: 0, onChunk: () => {} })).toThrow(RangeError);
     expect(() => new AudioPipeline({ channelCount: 9, onChunk: () => {} })).toThrow(RangeError);
     const { pipeline } = setup(2);
-    expect(() => pipeline.pushFrame(2, { samples: new Int16Array(160), sampleRate: 16_000, channelCount: 1 })).toThrow(
-      RangeError,
-    );
+    expect(() => pipeline.addSource("third", 2)).toThrow(RangeError);
+    pipeline.addSource("doctor", 0);
+    expect(() => pipeline.addSource("doctor", 1)).toThrow(/already registered/);
+    // Frames for unknown sources (e.g. a track that was just removed) are ignored.
+    expect(() => pipeline.pushFrame("nobody", { samples: new Int16Array(160), sampleRate: 16_000, channelCount: 1 })).not.toThrow();
   });
 
   it("describes its output format for the Corti stream config", () => {

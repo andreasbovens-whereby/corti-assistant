@@ -115,6 +115,7 @@ The polyfill also exports `setWebsocketOrigin(roomUrl)`. Nothing in the SDK call
 - ✅ Passing `configuration` makes `connect()` send `{ type: "config", configuration }` on open and resolve after `CONFIG_ACCEPTED` (or `CONFIG_ALREADY_RECEIVED`). It rejects on `CONFIG_DENIED`, `CONFIG_MISSING`, `CONFIG_NOT_PROVIDED`, a socket error, or `ENDED`.
 - ⚠️ **The docstring mentions `CONFIG_TIMEOUT`, but the stream status enum doesn't have it.** Only the `/transcribe` enum does, and the stream code doesn't handle it. If the server sends it, `connect()` won't reject on that message. Wrap `connect()` in our own timeout.
 - ✅ Config is re-sent on every reconnect, through a persistent `open` listener.
+- ❌ **`connect()` with `configuration` can crash the process** (found in milestone 3). `_connectWithConfigAck` creates the config-ack promise, then awaits `waitForOpen()`. If the connection fails before it opens (Corti unreachable, DNS, TLS), both reject. The caller catches `connect()`'s rejection, but nothing handles the ack promise, and Node exits on an unhandled rejection by default. So a Corti outage would take down every session in the process. Repro: call `stream.connect({ id, configuration })` against a closed port inside `try/catch`; the process still dies. **Workaround:** pass `awaitConfiguration: false` and wait for `CONFIG_ACCEPTED` ourselves (`Scribe.waitForConfigAccepted`). A regression test stops the fake server mid-call and lets the scribe retry repeatedly; vitest fails the run on any unhandled rejection.
 - ⚠️ **The reconnect sends audio in a burst, before the config.** The underlying `ReconnectingWebSocket` queues anything sent while disconnected, with no limit (`maxEnqueuedMessages: Infinity`). On reopen it flushes that queue **before** the `open` listeners run, so the queued audio arrives before the re-sent config, all at once and faster than real time. Two rules follow:
   - Send audio with `socket.sendAudio(buf)`, which throws unless `readyState === OPEN`, not `socket.send(buf)`, which queues. Treat a closed socket as "drop this chunk" in the clock.
   - After a reconnect, hold audio until the new `CONFIG_ACCEPTED` arrives.
@@ -227,6 +228,64 @@ Code: `src/audio/`. Flow per participant: `AudioSink` frame → downmix to mono 
 
 ---
 
+## Corti integration and sessions (milestone 3)
+
+Code: `src/corti/scribe.ts` (one Corti interaction), `src/session/` (room abstraction, channel mapping, session), `src/output/` (sinks). Tests run the **real `@corti/sdk`** against a local fake Corti (`test/helpers/fake-corti.ts`: OAuth token endpoint, interactions, documents, stream WebSocket) and a fake Whereby room that plays sine tones as "speech". No credentials needed.
+
+### Session flow
+
+1. `Scribe.start()`: create the interaction (`planned`, identifier = room name + UTC timestamp), PATCH it to `in-progress`, open the stream and wait for `CONFIG_ACCEPTED`. If Corti fails here, the session fails **without joining the room**.
+2. Join the room. If that fails, the interaction is PATCHed to `cancelled`.
+3. Start the audio clock. Participants' tracks are added to the pipeline as they appear.
+4. End, on the first of:
+   - everyone has left and the grace period (`END_GRACE_SECONDS`) has passed; someone rejoining cancels it;
+   - nobody joined within 10 minutes;
+   - the Assistant left or was removed;
+   - `end()` was called (later: shutdown).
+5. Stop audio, send `end`, wait for `ENDED` (with a timeout, collecting late facts), generate the note, PATCH to `completed`, push the note to the sink, leave the room. If the note fails, the error is reported and the interaction is still completed.
+
+### Resilience
+
+- **Corti drops mid-call:** the scribe reconnects with backoff (1 s doubling to 30 s) until the session ends. It uses a fresh `connect()` each time: new token, config re-sent and acknowledged before any audio. Audio produced while disconnected is **dropped, not queued**, and counted in the logs. The Whereby side isn't affected.
+- **Hangs:** config accept (10 s) and `ENDED` (30 s) have timeouts, so a silent Corti can't hang a session.
+- **Output sink errors:** errors thrown or rejected by an output sink are logged and never reach the session.
+
+### Channel mapping (`channel-map.ts`)
+
+- Channel 0 (doctor) goes to the participant whose `externalId` matches `CLINICIAN_EXTERNAL_ID_PATTERN`, or the host if nobody present matches.
+- Everyone else goes to channel 1 (patient).
+- Only one person holds channel 0 at a time. When the holder leaves, the next clinician to join takes it; that covers the same clinician rejoining with a new participant id.
+- Bots (`recorder`, `streamer`, `captioner`, `assistant` roles) are ignored for audio and for "is the room empty".
+- If no clinician can be identified, everyone lands on channel 1.
+
+### Note input
+
+The note uses **facts** when there are any: one `facts` context with the non-discarded facts collected on the stream, which is the ambient workflow's intended input. Otherwise it uses the **final transcript segments**, one `transcript` context each. If there's neither, the session reports an error instead of sending an empty request. Sections come back sorted by `sort`. The note is always `status: "draft"` with the label "DRAFT: generated by AI, for clinician review".
+
+### Output sinks
+
+The `OutputSink` interface has `onSession`, `onTranscript`, `onFacts` (full current list), `onNote` and `onError`.
+- `MemorySink` (for the demo page) keeps the 50 most recent sessions and emits an event on every update.
+- `WebhookSink` POSTs `{ type, sessionId, sentAt, data }` to `OUTPUT_WEBHOOK_URL`, best effort with a 5 s timeout.
+- `CompositeSink` sends to several sinks.
+
+Nothing is ever posted to the room chat.
+
+### Privacy in logs
+
+Logs carry ids, roles, counts and states only: no transcript text, facts, note content or display names. A test checks this.
+
+### What the fake can't prove (to check in milestone 4)
+
+- **Message shapes:** the fake follows the SDK's types, so any mismatch between those types and the real server won't show up in tests.
+- **Transcript time units:** `time.start`/`end` could be seconds or milliseconds; the types don't say.
+- **Note generation with retention "none":** does `documents.classic.create` work when `retentionPolicy` is `none`, since the classic document is stored?
+- **Reconnects:** does Corti accept a second stream connection to the same interaction?
+- **`fast_init`:** does it produce facts quickly enough for a short test call?
+- **Timing:** real latency from speech to transcript.
+
+---
+
 ## Answers to open questions so far
 
 - **Best end signal:** not settled yet. The candidates in the source:
@@ -235,7 +294,7 @@ Code: `src/audio/`. Flow per participant: `AudioSink` frame → downmix to mono 
   3. The `room.session.ended` webhook. It will likely not fire while the Assistant itself is still in the room, since it counts as a client. To verify in milestone 5.
   4. `ASSISTANT_LEFT_ROOM` (left or kicked).
 
-  My plan is (1) plus (4) as the primary signals, and (2) or (3) as a fast path if the payloads bear it out.
+  Implemented in milestone 3: (1) with a grace period, plus (4), plus a 10-minute no-show timeout. (2) or (3) can be added as a fast path in milestone 5 if the payloads bear it out.
 - **Do webhooks include `externalId`/role?** Yes, for `room.client.joined` and `room.client.left` (see above).
 - **Templates and languages:** 11 classic and 177 guided templates (see "Templates and languages" above).
 - **Latency, CPU and memory:** to measure in milestones 4 and 5.
@@ -243,4 +302,4 @@ Code: `src/audio/`. Flow per participant: `AudioSink` frame → downmix to mono 
 ## Items to raise upstream
 
 - Whereby: the `AudioSink` double sink leak; no `leaveRoom` on `Assistant`; Trigger's server not exposed and no graceful stop; the README spelling of `TRIGGER_EVENT_SUCCESS` and the constructor `roomUrl`.
-- Corti: the reconnect sends queued audio before the config; reconnects reuse the stale token; `CONFIG_TIMEOUT` isn't handled by `connect()`.
+- Corti: `connect()` with `configuration` crashes the process when the connection fails before opening (unhandled rejection); the reconnect sends queued audio before the config; reconnects reuse the stale token; `CONFIG_TIMEOUT` isn't handled by `connect()`.

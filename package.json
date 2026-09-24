@@ -1,0 +1,29 @@
+{
+  "name": "corti-assistant",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Whereby Assistant that streams per-participant audio to Corti's real-time ambient documentation API and produces a draft clinical note.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "list-templates": "tsx scripts/list-templates.ts"
+  },
+  "dependencies": {
+    "@corti/sdk": "5.0.0",
+    "@whereby.com/assistant-sdk": "1.2.111",
+    "dotenv": "^18.0.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.6",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.1"
+  }
+}

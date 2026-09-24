@@ -191,7 +191,7 @@ export class Scribe extends EventEmitter<ScribeEvents> {
       basedOn,
       sections: [...document.sections]
         .sort((a, b) => a.sort - b.sort)
-        .map(({ key, name, text }) => ({ key, heading: name, text })),
+        .map(({ key, name, text }) => ({ key, heading: name, text: withoutBareHeading(text, name) })),
       generatedAt: new Date().toISOString(),
     };
   }
@@ -408,6 +408,11 @@ export class Scribe extends EventEmitter<ScribeEvents> {
     this.logger.warn(message, details);
     this.emit("warning", message, details);
   }
+}
+
+/** Corti returns an empty section as just its heading (e.g. "Objective:"); treat that as empty. */
+function withoutBareHeading(text: string, heading: string): string {
+  return text.trim().replace(/:$/, "").toLowerCase() === heading.trim().toLowerCase() ? "" : text;
 }
 
 function toSource(source: string): Corti.CommonSourceEnum | undefined {

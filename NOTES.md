@@ -325,7 +325,7 @@ Manual mode (`npm run join -- <roomUrl>`) against the real Whereby room `funtime
 
 ---
 
-## Triggers and demo page (milestone 5, in progress)
+## Triggers and demo page (milestone 5)
 
 Code: `src/server.ts` (entry, `npm start`, or `npm run start:laptop` to keep a Mac awake), `src/server/` (HTTP app, webhook verification and decisions, session manager), `public/` (demo page). Run behind a tunnel: `ngrok http --url=<your-domain> 8080`.
 
@@ -348,10 +348,24 @@ Code: `src/server.ts` (entry, `npm start`, or `npm run start:laptop` to keep a M
 - **Corti sends no interim transcripts in facts mode** (0 interim results over 9 final segments). The page updates once per utterance.
 - **Bug found and fixed:** Corti's transcript item `id` is the **interaction id**, the same for every segment. We had used it as a segment id, so each segment replaced the previous one (the saved manual-mode session kept 1 of about 20 segments). Segments now get their own ids (`<channel>-<n>`); a regression test covers it.
 
-### Still to do for milestone 5
+### Result (2026-09-24, evening call)
 
-- A test call with both mics on, watching the demo page live (latency to the page, how it looks).
-- The garbled doctor transcripts in two of the four live calls: probably both voices going into one tab's mic, to check with a clean call.
+Invited from the room, both mics on, a role-played consultation of a few minutes watched on the demo page:
+
+- **Invite → live in 2.2 s**; both participants mapped (owner → doctor, `granted_visitor` → patient).
+- **15 final segments, all attributed correctly**, and accurate, including drug names ("Paracetamol", "Ibuprofen"). The garbled transcripts in two earlier calls came from both voices going into one tab's microphone (the patient tab was muted), not from the pipeline.
+- **10 facts**, including three in the `plan` group taken from the doctor's advice.
+- **The note is complete, Plan included:** "Ibuprofen PO with food. Switch back to paracetamol if feeling unwell with ibuprofen. Make a new appointment if pain does not resolve after the dental appointment." So the empty Plan in milestone 4 came from the conversation (the advice wasn't stated as a plan), not from using facts only.
+- **Fixed after this call:** Corti returns an empty section as its bare heading (`"Objective:"`). The note now treats that as empty, so the page shows "Nothing documented".
+
+**Done-when check:** "joining a room automatically starts the Assistant" was deliberately replaced by manual invites (see Decisions); an invite starts it automatically. "The demo page shows everything live": yes, transcript, facts and note, 2–3 s behind speech.
+
+### Tips for demoing
+
+- Use two people on two devices, or headphones and one unmuted tab at a time.
+- Talk for 3 minutes or more (facts start after 1–3 minutes), and have the doctor state the plan out loud.
+- First-time viewers of an ngrok free link click through ngrok's warning page once.
+- Role-played calls only: the demo setup (shared token, laptop, logs) isn't meant for real patient data.
 
 ---
 

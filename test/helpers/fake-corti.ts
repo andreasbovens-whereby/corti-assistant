@@ -158,6 +158,8 @@ export class FakeCorti {
         sections: [
           { key: "plan", name: "Plan", text: "Follow up in two weeks.", sort: 3, createdAt: now, updatedAt: now },
           { key: "subjective", name: "Subjective", text: `Based on: ${input}`, sort: 0, createdAt: now, updatedAt: now },
+          // Seen live: an empty section comes back as its own heading.
+          { key: "objective", name: "Objective", text: "Objective:", sort: 1, createdAt: now, updatedAt: now },
         ],
       });
     }

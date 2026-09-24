@@ -258,7 +258,8 @@ describe("Scribe against a fake Corti", () => {
       context: [{ type: "facts", data: [{ text: "Headache", group: "history", source: "core" }] }],
     });
     expect(note).toMatchObject({ status: "draft", label: DRAFT_LABEL, basedOn: "facts", templateKey: "corti-soap" });
-    expect(note.sections.map((s) => s.heading)).toEqual(["Subjective", "Plan"]); // sorted by `sort`
+    expect(note.sections.map((s) => s.heading)).toEqual(["Subjective", "Objective", "Plan"]); // sorted by `sort`
+    expect(note.sections[1]!.text).toBe(""); // "Objective:" alone means the section is empty
   });
 
   it("falls back to the transcript when there are no facts", async () => {

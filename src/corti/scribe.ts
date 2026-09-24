@@ -56,7 +56,10 @@ export class Scribe extends EventEmitter<ScribeEvents> {
   private reconnectAttempt = 0;
   private droppedChunks = 0;
   private endedWaiter: (() => void) | undefined;
-  private readonly segments = new Map<string, TranscriptSegment>();
+  private readonly finalSegments: TranscriptSegment[] = [];
+  /** Per channel: how many final segments so far, used to name the next segment. */
+  private readonly segmentCounters = new Map<number, number>();
+  private interimCount = 0;
   private readonly facts = new Map<string, Fact>();
 
   constructor({ logger = silentLogger, ...options }: ScribeOptions) {
@@ -80,7 +83,7 @@ export class Scribe extends EventEmitter<ScribeEvents> {
 
   /** Final transcript segments in arrival order. */
   get transcript(): TranscriptSegment[] {
-    return [...this.segments.values()].filter((s) => s.final);
+    return [...this.finalSegments];
   }
 
   get currentFacts(): Fact[] {
@@ -148,6 +151,7 @@ export class Scribe extends EventEmitter<ScribeEvents> {
     this.closeSocket();
     this.setState("ended");
     if (this.droppedChunks > 0) this.logger.info("Audio chunks dropped while disconnected", { chunks: this.droppedChunks });
+    this.logger.info("Transcript received", { finalSegments: this.finalSegments.length, interimResults: this.interimCount, facts: this.facts.size });
   }
 
   /**
@@ -349,10 +353,17 @@ export class Scribe extends EventEmitter<ScribeEvents> {
     }
   }
 
+  /**
+   * Corti's `id` on a transcript item is the interaction id, the same for every segment,
+   * so segments get their own ids: `<channel>-<n>`. Interim results on a channel keep
+   * the id of the segment in progress until its final version arrives, so consumers can
+   * replace interim text in place.
+   */
   private addSegment(item: Corti.StreamTranscript): void {
     const channel = item.participant?.channel ?? 0;
+    const index = this.segmentCounters.get(channel) ?? 0;
     const segment: TranscriptSegment = {
-      id: item.id,
+      id: `${channel}-${index}`,
       channel,
       role: this.options.channelRoles[channel] ?? "multiple",
       text: item.transcript,
@@ -360,7 +371,12 @@ export class Scribe extends EventEmitter<ScribeEvents> {
       start: item.time?.start ?? 0,
       end: item.time?.end ?? 0,
     };
-    this.segments.set(segment.id, segment);
+    if (segment.final) {
+      this.finalSegments.push(segment);
+      this.segmentCounters.set(channel, index + 1);
+    } else {
+      this.interimCount++;
+    }
     this.emit("transcript", segment);
   }
 

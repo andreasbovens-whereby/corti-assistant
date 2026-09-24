@@ -18,6 +18,17 @@ export interface Config {
   endGraceSeconds: number;
   port: number;
   outputWebhookUrl: URL | null;
+  server: {
+    /** Public base URL (e.g. the ngrok domain), used only for printing links. */
+    publicUrl: URL | null;
+    /** Shared token for the demo page and its API. Generated at startup if not set. */
+    demoToken: string | null;
+    /** Secret for verifying `Whereby-Signature` on incoming webhooks. */
+    webhookSecret: string | null;
+    /** Rooms (by room name, e.g. "/visit-42") where a participant joining starts the Assistant. */
+    triggerRoomPattern: RegExp | null;
+    maxSessions: number;
+  };
 }
 
 export class ConfigError extends Error {
@@ -120,7 +131,16 @@ export function loadConfig(env: Env = process.env): Config {
     endGraceSeconds: integer("END_GRACE_SECONDS", 30, 0, 3600),
     port: integer("PORT", 8080, 1, 65535),
     outputWebhookUrl: url("OUTPUT_WEBHOOK_URL"),
+    server: {
+      publicUrl: url("PUBLIC_URL"),
+      demoToken: read("DEMO_TOKEN") ?? null,
+      webhookSecret: read("WHEREBY_WEBHOOK_SECRET") ?? null,
+      triggerRoomPattern: pattern("TRIGGER_ROOM_PATTERN"),
+      maxSessions: integer("MAX_SESSIONS", 4, 1, 50),
+    },
   };
+  const demoToken = config.server.demoToken;
+  if (demoToken !== null && demoToken.length < 16) problems.push("DEMO_TOKEN must be at least 16 characters");
 
   if (problems.length > 0) throw new ConfigError(problems);
   return config;

@@ -325,10 +325,40 @@ Manual mode (`npm run join -- <roomUrl>`) against the real Whereby room `funtime
 
 ---
 
+## Triggers and demo page (milestone 5, in progress)
+
+Code: `src/server.ts` (entry, `npm start`, or `npm run start:laptop` to keep a Mac awake), `src/server/` (HTTP app, webhook verification and decisions, session manager), `public/` (demo page). Run behind a tunnel: `ngrok http --url=<your-domain> 8080`.
+
+### Decisions
+
+- **Our own HTTP server on one port**, not the SDK's Trigger (see "Trigger" above): webhooks, `/healthz`, the demo page and its API.
+- **The Assistant only joins when invited** (decision 2026-09-24): from inside the room (Whereby's Manual Invite, `assistant.requested`) or from the demo page. Automatic joining on `room.client.joined` exists but is off unless `TRIGGER_ROOM_PATTERN` is set, and then only for matching rooms. Without that restriction, every room in the org would get a scribe.
+- **Hosting on a laptop with ngrok** (free plan, fixed domain), instead of Render's free plan: 0.1 CPU is too little for one call, and it spins down mid-call because our traffic is outbound. Cloudflare Quick Tunnels don't support SSE.
+- **Webhook signatures:** `Whereby-Signature` is verified when `WHEREBY_WEBHOOK_SECRET` is set (HMAC-SHA256 over `<t>.<body>`, max age 5 minutes).
+- **Demo page security:** the page is static; all data goes through `/api/*`, which requires the shared `DEMO_TOKEN`. The token is passed in the URL fragment (not sent in requests or referrers), then kept in `sessionStorage`. Strict CSP, `no-referrer`, all text inserted as text.
+- **At most `MAX_SESSIONS` (default 4) at once,** one per room. Duplicate invites for a running room are ignored. A failing session never affects others, and the process logs, rather than exits on, unexpected errors.
+- **Shutdown** (SIGINT/SIGTERM) ends every open session properly, so notes still get generated.
+
+### Found live (2026-09-24)
+
+- **Webhook payloads:** `room.client.joined`/`left` include `roleName`, `externalId`, `displayName`, `participantId`, `metadata`, `numClients`, `numClientsByRoleName`, `isDialIn`, `roomSessionId`, `meetingId`. `assistant.requested` and `room.session.*` carry only room fields.
+- **Signed:** all of them, including `assistant.requested`, with the org webhook's secret. A real webhook passed verification; an unsigned request got 401.
+- **Timing:** invite → Assistant live in about 2 s. The Assistant's own join arrives as `room.client.joined` with `roleName: "assistant"` (ignored, no duplicate session). `room.session.started` fires when the second person joins. `room.session.ended` fires **60 s after** the last person leaves, much later than the Assistant being removed (immediately).
+- **A muted participant has no audio track** until they unmute; the track is mapped when it appears.
+- **Corti sends no interim transcripts in facts mode** (0 interim results over 9 final segments). The page updates once per utterance.
+- **Bug found and fixed:** Corti's transcript item `id` is the **interaction id**, the same for every segment. We had used it as a segment id, so each segment replaced the previous one (the saved manual-mode session kept 1 of about 20 segments). Segments now get their own ids (`<channel>-<n>`); a regression test covers it.
+
+### Still to do for milestone 5
+
+- A test call with both mics on, watching the demo page live (latency to the page, how it looks).
+- The garbled doctor transcripts in two of the four live calls: probably both voices going into one tab's mic, to check with a clean call.
+
+---
+
 ## Answers to open questions so far
 
 - **Best end signal:** Whereby removes the Assistant when the last person leaves, so `ASSISTANT_LEFT_ROOM` is the primary signal in practice. The empty-room grace period and the no-show timeout remain as backstops (live test, milestone 4).
-- **Do webhooks include `externalId`/role?** Per the SDK types, yes for `room.client.joined`/`left`; to confirm with real payloads in milestone 5.
+- **Do webhooks include `externalId`/role?** Yes: `room.client.joined`/`left` include `roleName`, `externalId`, `displayName` and participant counts (confirmed with real payloads, milestone 5).
 - **Templates and languages:** 11 classic and 177 guided templates (see "Templates and languages").
 - **Latency:** about 2–3.5 s from the end of an utterance to the final transcript (milestone 4). The demo page adds little on top of that; to confirm in milestone 5.
 - **CPU and memory:** 13–15% of one core and ~150–180 MB per two-person session locally; to confirm on Fly in milestone 6.

@@ -13,6 +13,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "start": "tsx src/server.ts",
+    "start:laptop": "caffeinate -is tsx src/server.ts",
     "list-templates": "tsx scripts/list-templates.ts",
     "join": "tsx src/join.ts"
   },

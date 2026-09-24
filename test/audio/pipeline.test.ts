@@ -188,7 +188,7 @@ describe("AudioPipeline", () => {
     expect(worstDelay).toBeLessThanOrEqual(bound);
     expect(pipeline.stats().channels.every((c) => c.droppedSamples === 0)).toBe(true);
     expect(logger.entries.filter((e) => e.level === "warn")).toEqual([]);
-  });
+  }, 30_000); // an hour of audio in virtual time takes a few seconds of real CPU
 
   it("mixes several sources on one channel (extra participants join the patient channel)", () => {
     const { clock, chunks, pipeline } = setup();

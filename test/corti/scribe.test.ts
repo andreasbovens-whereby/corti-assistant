@@ -130,6 +130,30 @@ describe("Scribe against a fake Corti", () => {
     expect(factUpdates[1]!.map((f) => f.text)).toEqual(["Headache, frontal"]);
   });
 
+  it("keeps every segment, although Corti gives them all the interaction id", async () => {
+    const { scribe } = await setup();
+    const ids: string[] = [];
+    scribe.on("transcript", (s) => ids.push(s.id));
+    await scribe.start("visit");
+    const item = (channel: number, transcript: string, final: boolean) => ({
+      id: scribe.interactionId, transcript, final, speakerId: -1, participant: { channel }, time: { start: 0, end: 1 },
+    });
+    stream().send({ type: "transcript", data: [item(0, "How", false)] });
+    stream().send({ type: "transcript", data: [item(0, "How are you?", true)] });
+    stream().send({ type: "transcript", data: [item(1, "Not great", false), item(0, "Tell me", false)] });
+    stream().send({ type: "transcript", data: [item(1, "Not great.", true)] });
+    stream().send({ type: "transcript", data: [item(0, "Tell me more.", true)] });
+    await waitFor(() => scribe.transcript.length === 3);
+
+    expect(scribe.transcript.map((s) => [s.id, s.text])).toEqual([
+      ["0-0", "How are you?"],
+      ["1-0", "Not great."],
+      ["0-1", "Tell me more."],
+    ]);
+    // An interim result shares the id of the final segment it turns into.
+    expect(ids).toEqual(["0-0", "0-0", "1-0", "0-1", "1-0", "0-1"]);
+  });
+
   it("ends the stream: sends end, collects final facts, waits for ENDED", async () => {
     const { fake, scribe } = await setup({ endDelayMs: 200 });
     fake.onEnd = (connection) =>

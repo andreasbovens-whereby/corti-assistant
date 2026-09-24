@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Ambient scribe demo</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>Ambient scribe demo</h1>
+        <p class="subtitle">Whereby Assistant + Corti · live transcript, facts and draft note</p>
+      </div>
+      <span id="connection" class="connection" data-state="connecting">Connecting…</span>
+    </header>
+
+    <section id="token-gate" class="gate" hidden>
+      <form id="token-form">
+        <label for="token-input">Demo token</label>
+        <input id="token-input" type="password" autocomplete="off" required />
+        <button type="submit">Open</button>
+      </form>
+      <p class="hint">The token is printed when the server starts. Links of the form <code>…/#token=…</code> fill it in for you.</p>
+    </section>
+
+    <main id="app" class="layout" hidden>
+      <aside class="sidebar">
+        <form id="start-form" class="start">
+          <label for="room-input">Invite the Assistant to a room</label>
+          <input id="room-input" type="url" placeholder="https://subdomain.whereby.com/room" required />
+          <button type="submit">Invite</button>
+          <p id="start-status" class="hint" role="status"></p>
+        </form>
+        <h2>Sessions</h2>
+        <ul id="session-list" class="session-list"></ul>
+        <p id="no-sessions" class="hint">No sessions yet. Join a room, or invite the Assistant above.</p>
+      </aside>
+
+      <section id="session" class="session" hidden>
+        <div class="session-header">
+          <div>
+            <h2 id="session-title"></h2>
+            <p id="session-meta" class="hint"></p>
+          </div>
+          <button id="end-button" type="button" class="secondary" hidden>End session</button>
+        </div>
+        <ul id="errors" class="errors"></ul>
+
+        <div class="columns">
+          <section class="panel transcript-panel">
+            <h3>Transcript</h3>
+            <ol id="transcript" class="transcript"></ol>
+            <p id="transcript-empty" class="hint">Waiting for speech…</p>
+          </section>
+
+          <section class="panel">
+            <h3>Facts <span id="fact-count" class="count"></span></h3>
+            <div id="facts"></div>
+            <p id="facts-empty" class="hint">Facts appear as the conversation goes on.</p>
+          </section>
+        </div>
+
+        <section class="panel note-panel">
+          <h3>Draft note</h3>
+          <div id="note"></div>
+          <p id="note-empty" class="hint">Generated when the call ends.</p>
+        </section>
+      </section>
+    </main>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>

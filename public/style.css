@@ -1,0 +1,334 @@
+:root {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --text: #1c1f24;
+  --muted: #61666f;
+  --border: #dde0e5;
+  --accent: #3b5bdb;
+  --doctor: #e7eefc;
+  --doctor-edge: #3b5bdb;
+  --patient: #e9f6ee;
+  --patient-edge: #2f9e62;
+  --draft: #fff4d6;
+  --draft-edge: #d9a400;
+  --error: #fdecec;
+  --error-edge: #d64545;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14161a;
+    --surface: #1d2026;
+    --text: #e8eaed;
+    --muted: #9aa0a9;
+    --border: #30343c;
+    --accent: #7c95ff;
+    --doctor: #1f2a44;
+    --doctor-edge: #7c95ff;
+    --patient: #1c3326;
+    --patient-edge: #52c485;
+    --draft: #3a3016;
+    --draft-edge: #e0b53a;
+    --error: #3d1f1f;
+    --error-edge: #ff7b7b;
+    color-scheme: dark;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+  line-height: 1.25;
+}
+h1 {
+  font-size: 1.2rem;
+}
+h2 {
+  font-size: 1.05rem;
+}
+h3 {
+  font-size: 0.95rem;
+  margin-bottom: 0.75rem;
+}
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 1.5rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.subtitle,
+.hint {
+  margin: 0.25rem 0 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.connection {
+  font-size: 0.8rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+.connection[data-state="live"] {
+  border-color: var(--patient-edge);
+  color: var(--patient-edge);
+}
+.connection[data-state="offline"] {
+  border-color: var(--error-edge);
+  color: var(--error-edge);
+}
+
+.gate {
+  max-width: 28rem;
+  margin: 4rem auto;
+  padding: 1.5rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+label {
+  display: block;
+  font-weight: 600;
+  font-size: 0.85rem;
+  margin-bottom: 0.35rem;
+}
+input {
+  width: 100%;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+button {
+  margin-top: 0.5rem;
+  padding: 0.45rem 0.9rem;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
+}
+button.secondary {
+  background: transparent;
+  color: var(--accent);
+  margin-top: 0;
+}
+button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: 18rem 1fr;
+  gap: 1.5rem;
+  padding: 1.5rem;
+  max-width: 90rem;
+  margin: 0 auto;
+}
+@media (max-width: 800px) {
+  .layout {
+    grid-template-columns: 1fr;
+    padding: 1rem;
+  }
+}
+
+.start {
+  margin-bottom: 1.5rem;
+}
+.session-list {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+}
+.session-list button {
+  width: 100%;
+  margin: 0 0 0.5rem;
+  text-align: left;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+.session-list button[aria-current="true"] {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.session-name {
+  display: block;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.badge {
+  display: inline-block;
+  font-size: 0.75rem;
+  padding: 0 0.45rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+.badge[data-state="live"] {
+  border-color: var(--patient-edge);
+  color: var(--patient-edge);
+}
+.badge[data-state="failed"] {
+  border-color: var(--error-edge);
+  color: var(--error-edge);
+}
+
+.session-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+.session-header h2 {
+  overflow-wrap: anywhere;
+}
+
+.columns {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: 1rem;
+}
+@media (max-width: 1100px) {
+  .columns {
+    grid-template-columns: 1fr;
+  }
+}
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+  min-width: 0;
+}
+
+.transcript {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+.segment {
+  margin: 0 0 0.6rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 10px;
+  border-left: 3px solid;
+  max-width: 85%;
+}
+.segment[data-role="doctor"] {
+  background: var(--doctor);
+  border-color: var(--doctor-edge);
+}
+.segment[data-role="patient"],
+.segment[data-role="multiple"] {
+  background: var(--patient);
+  border-color: var(--patient-edge);
+  margin-left: auto;
+}
+.segment[data-final="false"] {
+  opacity: 0.65;
+  font-style: italic;
+}
+.segment-meta {
+  display: flex;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin-bottom: 0.15rem;
+}
+.segment-role {
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.fact-group {
+  margin-bottom: 0.75rem;
+}
+.fact-group h4 {
+  margin: 0 0 0.25rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+  text-transform: capitalize;
+}
+.fact-group ul {
+  margin: 0;
+  padding-left: 1.1rem;
+}
+.count {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.draft-banner {
+  padding: 0.6rem 0.8rem;
+  margin-bottom: 1rem;
+  border-radius: 8px;
+  background: var(--draft);
+  border: 1px solid var(--draft-edge);
+  font-weight: 600;
+}
+.note-section {
+  margin-bottom: 1rem;
+}
+.note-section h4 {
+  margin: 0 0 0.25rem;
+}
+.note-section p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+.note-section .empty {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.errors {
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+}
+.errors li {
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0.4rem;
+  border-radius: 8px;
+  background: var(--error);
+  border-left: 3px solid var(--error-edge);
+  font-size: 0.85rem;
+}
+
+code {
+  font-size: 0.85em;
+}
+.note-panel .hint {
+  margin-bottom: 1rem;
+}

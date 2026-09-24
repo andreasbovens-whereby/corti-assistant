@@ -15,6 +15,7 @@
     "test:watch": "vitest",
     "start": "tsx src/server.ts",
     "start:laptop": "caffeinate -is tsx src/server.ts",
+    "demo": "tsx scripts/demo.ts",
     "list-templates": "tsx scripts/list-templates.ts",
     "join": "tsx src/join.ts"
   },

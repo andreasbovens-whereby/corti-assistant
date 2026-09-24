@@ -369,13 +369,25 @@ Invited from the room, both mics on, a role-played consultation of a few minutes
 
 ---
 
+## Running the demo (milestone 6)
+
+**Decision (2026-09-24):** the demo runs **from a laptop behind ngrok**, not on Fly.io. So milestone 6 became "a reliable way to run the demo":
+
+- **`npm run demo`:** starts the ngrok tunnel on the `PUBLIC_URL` domain, waits until it's online, keeps the Mac awake (`caffeinate -w` on our process), and starts the server. Ctrl-C ends open sessions properly (notes included), then stops the tunnel and `caffeinate`. If ngrok can't start, it exits with a hint (not authenticated, tunnel already running elsewhere, not installed). Tested: the normal start and shutdown, and the "already running" error.
+- **Graceful shutdown:** `test/server/shutdown.test.ts` shuts down during two live calls (real sessions, fake Corti and room). Both end with a note, a completed interaction and the room left.
+- **Health check:** `GET /healthz` (milestone 5).
+- **Not built:** Dockerfile and `fly.toml`. If a customer-facing template needs them later: use a Debian-based `node:24-slim` image (glibc, for the WebRTC binaries; not Alpine) with no FFmpeg, and `/healthz` as the check. Also give each call about 0.15–0.2 of a CPU (see the milestone 4 measurements), and keep the machine always on (no scale-to-zero). The call traffic is outbound, so platforms that sleep on inbound inactivity would cut calls off.
+- **README.md** covers setup (Corti, Whereby dashboard, ngrok), running, configuration, endpoints, troubleshooting and privacy.
+
+---
+
 ## Answers to open questions so far
 
 - **Best end signal:** Whereby removes the Assistant when the last person leaves, so `ASSISTANT_LEFT_ROOM` is the primary signal in practice. The empty-room grace period and the no-show timeout remain as backstops (live test, milestone 4).
 - **Do webhooks include `externalId`/role?** Yes: `room.client.joined`/`left` include `roleName`, `externalId`, `displayName` and participant counts (confirmed with real payloads, milestone 5).
 - **Templates and languages:** 11 classic and 177 guided templates (see "Templates and languages").
 - **Latency:** about 2–3.5 s from the end of an utterance to the final transcript (milestone 4). The demo page adds little on top of that; to confirm in milestone 5.
-- **CPU and memory:** 13–15% of one core and ~150–180 MB per two-person session locally; to confirm on Fly in milestone 6.
+- **CPU and memory:** 13–15% of one core and ~150–180 MB per two-person session, on an Apple Silicon laptop (milestone 4). With the demo running from a laptop, `MAX_SESSIONS` defaults to 4. There was no cloud measurement, since there's no Fly deployment.
 
 ---
 
